@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread::sleep;
 use std::time::Duration;
 
-use async_channel::{bounded, RecvError, SendError, TryRecvError, TrySendError};
+use async_channel::{bounded, SendError, TryRecvError, TrySendError};
 use easy_parallel::Parallel;
 use futures_lite::{future, prelude::*};
 
@@ -24,7 +24,7 @@ fn smoke() {
     assert_eq!(r.try_recv(), Ok(7));
 
     future::block_on(s.send(8)).unwrap();
-    assert_eq!(future::block_on(r.recv()), Ok(8));
+    assert_eq!(future::block_on(r.recv()), Some(8));
 
     assert_eq!(r.try_recv(), Err(TryRecvError::Empty));
 }
@@ -38,10 +38,10 @@ fn smoke_blocking() {
     assert_eq!(r.try_recv(), Ok(7));
 
     s.send_blocking(8).unwrap();
-    assert_eq!(future::block_on(r.recv()), Ok(8));
+    assert_eq!(future::block_on(r.recv()), Some(8));
 
     future::block_on(s.send(9)).unwrap();
-    assert_eq!(r.recv_blocking(), Ok(9));
+    assert_eq!(r.recv_blocking(), Some(9));
 
     assert_eq!(r.try_recv(), Err(TryRecvError::Empty));
 }
@@ -121,12 +121,12 @@ fn recv() {
 
     Parallel::new()
         .add(move || {
-            assert_eq!(future::block_on(r.recv()), Ok(7));
+            assert_eq!(future::block_on(r.recv()), Some(7));
             sleep(ms(1000));
-            assert_eq!(future::block_on(r.recv()), Ok(8));
+            assert_eq!(future::block_on(r.recv()), Some(8));
             sleep(ms(1000));
-            assert_eq!(future::block_on(r.recv()), Ok(9));
-            assert_eq!(future::block_on(r.recv()), Err(RecvError));
+            assert_eq!(future::block_on(r.recv()), Some(9));
+            assert_eq!(future::block_on(r.recv()), None);
         })
         .add(move || {
             sleep(ms(1500));
@@ -155,7 +155,7 @@ fn try_send() {
             sleep(ms(1000));
             assert_eq!(r.try_recv(), Ok(1));
             assert_eq!(r.try_recv(), Err(TryRecvError::Empty));
-            assert_eq!(future::block_on(r.recv()), Ok(3));
+            assert_eq!(future::block_on(r.recv()), Some(3));
         })
         .run();
 }
@@ -177,9 +177,9 @@ fn send() {
         })
         .add(|| {
             sleep(ms(1500));
-            assert_eq!(future::block_on(r.recv()), Ok(7));
-            assert_eq!(future::block_on(r.recv()), Ok(8));
-            assert_eq!(future::block_on(r.recv()), Ok(9));
+            assert_eq!(future::block_on(r.recv()), Some(7));
+            assert_eq!(future::block_on(r.recv()), Some(8));
+            assert_eq!(future::block_on(r.recv()), Some(9));
         })
         .run();
 }
@@ -201,9 +201,9 @@ fn force_send() {
         })
         .add(|| {
             sleep(ms(1500));
-            assert_eq!(future::block_on(r.recv()), Ok(8));
-            assert_eq!(future::block_on(r.recv()), Ok(9));
-            assert_eq!(future::block_on(r.recv()), Ok(10));
+            assert_eq!(future::block_on(r.recv()), Some(8));
+            assert_eq!(future::block_on(r.recv()), Some(9));
+            assert_eq!(future::block_on(r.recv()), Some(10));
         })
         .run();
 }
@@ -235,10 +235,10 @@ fn recv_after_close() {
 
     drop(s);
 
-    assert_eq!(future::block_on(r.recv()), Ok(1));
-    assert_eq!(future::block_on(r.recv()), Ok(2));
-    assert_eq!(future::block_on(r.recv()), Ok(3));
-    assert_eq!(future::block_on(r.recv()), Err(RecvError));
+    assert_eq!(future::block_on(r.recv()), Some(1));
+    assert_eq!(future::block_on(r.recv()), Some(2));
+    assert_eq!(future::block_on(r.recv()), Some(3));
+    assert_eq!(future::block_on(r.recv()), None);
 }
 
 #[cfg(not(target_family = "wasm"))]
@@ -282,7 +282,7 @@ fn len() {
     Parallel::new()
         .add(|| {
             for i in 0..COUNT {
-                assert_eq!(future::block_on(r.recv()), Ok(i));
+                assert_eq!(future::block_on(r.recv()), Some(i));
                 let len = r.len();
                 assert!(len <= CAP);
             }
@@ -352,7 +352,7 @@ fn close_wakes_receiver() {
 
     Parallel::new()
         .add(move || {
-            assert_eq!(future::block_on(r.recv()), Err(RecvError));
+            assert_eq!(future::block_on(r.recv()), None);
         })
         .add(move || {
             sleep(ms(1000));
@@ -383,8 +383,8 @@ fn forget_blocked_sender() {
         })
         .add(move || {
             sleep(ms(200));
-            assert_eq!(future::block_on(r.recv()), Ok(3));
-            assert_eq!(future::block_on(r.recv()), Ok(7));
+            assert_eq!(future::block_on(r.recv()), Some(3));
+            assert_eq!(future::block_on(r.recv()), Some(7));
             sleep(ms(100));
             assert_eq!(r.try_recv(), Ok(42));
         })
@@ -407,7 +407,7 @@ fn forget_blocked_receiver() {
         })
         .add(move || {
             sleep(ms(100));
-            assert_eq!(future::block_on(r2.recv()), Ok(3));
+            assert_eq!(future::block_on(r2.recv()), Some(3));
         })
         .add(move || {
             sleep(ms(200));
@@ -429,9 +429,9 @@ fn spsc() {
     Parallel::new()
         .add(move || {
             for i in 0..COUNT {
-                assert_eq!(future::block_on(r.recv()), Ok(i));
+                assert_eq!(future::block_on(r.recv()), Some(i));
             }
-            assert_eq!(future::block_on(r.recv()), Err(RecvError));
+            assert_eq!(future::block_on(r.recv()), None);
         })
         .add(move || {
             for i in 0..COUNT {
@@ -515,7 +515,7 @@ fn weak() {
         let s = weak_s.upgrade().unwrap();
         s.send_blocking(3).unwrap();
         let r = weak_r.upgrade().unwrap();
-        assert_eq!(r.recv_blocking(), Ok(3));
+        assert_eq!(r.recv_blocking(), Some(3));
     }
 
     // Drop the original sender/receiver pair.

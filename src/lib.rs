@@ -22,7 +22,7 @@
 //! let (s, r) = async_channel::unbounded();
 //!
 //! assert_eq!(s.send("Hello").await, Ok(()));
-//! assert_eq!(r.recv().await, Ok("Hello"));
+//! assert_eq!(r.recv().await, Some("Hello"));
 //! # });
 //! ```
 
@@ -116,7 +116,7 @@ impl<T> Channel<T> {
 /// assert_eq!(s.send(10).await, Ok(()));
 /// assert_eq!(s.try_send(20), Err(TrySendError::Full(20)));
 ///
-/// assert_eq!(r.recv().await, Ok(10));
+/// assert_eq!(r.recv().await, Some(10));
 /// assert_eq!(r.try_recv(), Err(TryRecvError::Empty));
 /// # });
 /// ```
@@ -158,8 +158,8 @@ pub fn bounded<T>(cap: usize) -> (Sender<T>, Receiver<T>) {
 /// assert_eq!(s.send(10).await, Ok(()));
 /// assert_eq!(s.send(20).await, Ok(()));
 ///
-/// assert_eq!(r.recv().await, Ok(10));
-/// assert_eq!(r.recv().await, Ok(20));
+/// assert_eq!(r.recv().await, Some(10));
+/// assert_eq!(r.recv().await, Some(20));
 /// assert_eq!(r.try_recv(), Err(TryRecvError::Empty));
 /// # });
 /// ```
@@ -307,9 +307,9 @@ impl<T> Sender<T> {
     /// assert_eq!(s.force_send(3), Ok(None));
     /// assert_eq!(s.force_send(4), Ok(Some(1)));
     ///
-    /// assert_eq!(r.recv().await, Ok(2));
-    /// assert_eq!(r.recv().await, Ok(3));
-    /// assert_eq!(r.recv().await, Ok(4));
+    /// assert_eq!(r.recv().await, Some(2));
+    /// assert_eq!(r.recv().await, Some(3));
+    /// assert_eq!(r.recv().await, Some(4));
     /// # });
     /// ```
     pub fn force_send(&self, msg: T) -> Result<Option<T>, SendError<T>> {
@@ -339,14 +339,14 @@ impl<T> Sender<T> {
     ///
     /// ```
     /// # futures_lite::future::block_on(async {
-    /// use async_channel::{unbounded, RecvError};
+    /// use async_channel::unbounded;
     ///
     /// let (s, r) = unbounded();
     /// assert_eq!(s.send(1).await, Ok(()));
     /// assert!(s.close());
     ///
-    /// assert_eq!(r.recv().await, Ok(1));
-    /// assert_eq!(r.recv().await, Err(RecvError));
+    /// assert_eq!(r.recv().await, Some(1));
+    /// assert_eq!(r.recv().await, None);
     /// # });
     /// ```
     pub fn close(&self) -> bool {
@@ -359,7 +359,7 @@ impl<T> Sender<T> {
     ///
     /// ```
     /// # futures_lite::future::block_on(async {
-    /// use async_channel::{unbounded, RecvError};
+    /// use async_channel::unbounded;
     ///
     /// let (s, r) = unbounded::<()>();
     /// assert!(!s.is_closed());
@@ -622,15 +622,15 @@ impl<T> Receiver<T> {
     ///
     /// ```
     /// # futures_lite::future::block_on(async {
-    /// use async_channel::{unbounded, RecvError};
+    /// use async_channel::unbounded;
     ///
     /// let (s, r) = unbounded();
     ///
     /// assert_eq!(s.send(1).await, Ok(()));
     /// drop(s);
     ///
-    /// assert_eq!(r.recv().await, Ok(1));
-    /// assert_eq!(r.recv().await, Err(RecvError));
+    /// assert_eq!(r.recv().await, Some(1));
+    /// assert_eq!(r.recv().await, None);
     /// # });
     /// ```
     pub fn recv(&self) -> Recv<'_, T> {
@@ -659,18 +659,18 @@ impl<T> Receiver<T> {
     /// # Examples
     ///
     /// ```
-    /// use async_channel::{unbounded, RecvError};
+    /// use async_channel::unbounded;
     ///
     /// let (s, r) = unbounded();
     ///
     /// assert_eq!(s.send_blocking(1), Ok(()));
     /// drop(s);
     ///
-    /// assert_eq!(r.recv_blocking(), Ok(1));
-    /// assert_eq!(r.recv_blocking(), Err(RecvError));
+    /// assert_eq!(r.recv_blocking(), Some(1));
+    /// assert_eq!(r.recv_blocking(), None);
     /// ```
     #[cfg(all(feature = "std", not(target_family = "wasm")))]
-    pub fn recv_blocking(&self) -> Result<T, RecvError> {
+    pub fn recv_blocking(&self) -> Option<T> {
         self.recv().wait()
     }
 
@@ -684,14 +684,14 @@ impl<T> Receiver<T> {
     ///
     /// ```
     /// # futures_lite::future::block_on(async {
-    /// use async_channel::{unbounded, RecvError};
+    /// use async_channel::unbounded;
     ///
     /// let (s, r) = unbounded();
     /// assert_eq!(s.send(1).await, Ok(()));
     ///
     /// assert!(r.close());
-    /// assert_eq!(r.recv().await, Ok(1));
-    /// assert_eq!(r.recv().await, Err(RecvError));
+    /// assert_eq!(r.recv().await, Some(1));
+    /// assert_eq!(r.recv().await, None);
     /// # });
     /// ```
     pub fn close(&self) -> bool {
@@ -704,7 +704,7 @@ impl<T> Receiver<T> {
     ///
     /// ```
     /// # futures_lite::future::block_on(async {
-    /// use async_channel::{unbounded, RecvError};
+    /// use async_channel::unbounded;
     ///
     /// let (s, r) = unbounded::<()>();
     /// assert!(!r.is_closed());
@@ -1111,21 +1111,6 @@ impl<T> fmt::Display for TrySendError<T> {
     }
 }
 
-/// An error returned from [`Receiver::recv()`].
-///
-/// Received because the channel is empty and closed.
-#[derive(PartialEq, Eq, Clone, Copy, Debug)]
-pub struct RecvError;
-
-#[cfg(feature = "std")]
-impl std::error::Error for RecvError {}
-
-impl fmt::Display for RecvError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "receiving from an empty and closed channel")
-    }
-}
-
 /// An error returned from [`Receiver::try_recv()`].
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
 pub enum TryRecvError {
@@ -1229,7 +1214,7 @@ easy_wrapper! {
     /// A future returned by [`Receiver::recv()`].
     #[derive(Debug)]
     #[must_use = "futures do nothing unless you `.await` or poll them"]
-    pub struct Recv<'a, T>(RecvInner<'a, T> => Result<T, RecvError>);
+    pub struct Recv<'a, T>(RecvInner<'a, T> => Option<T>);
     #[cfg(all(feature = "std", not(target_family = "wasm")))]
     pub(crate) wait();
 }
@@ -1251,21 +1236,21 @@ pin_project! {
 }
 
 impl<'a, T> EventListenerFuture for RecvInner<'a, T> {
-    type Output = Result<T, RecvError>;
+    type Output = Option<T>;
 
     /// Run this future with the given `Strategy`.
     fn poll_with_strategy<'x, S: Strategy<'x>>(
         self: Pin<&mut Self>,
         strategy: &mut S,
         cx: &mut S::Context,
-    ) -> Poll<Result<T, RecvError>> {
+    ) -> Poll<Option<T>> {
         let this = self.project();
 
         loop {
             // Attempt to receive a message.
             match this.receiver.try_recv() {
-                Ok(msg) => return Poll::Ready(Ok(msg)),
-                Err(TryRecvError::Closed) => return Poll::Ready(Err(RecvError)),
+                Ok(msg) => return Poll::Ready(Some(msg)),
+                Err(TryRecvError::Closed) => return Poll::Ready(None),
                 Err(TryRecvError::Empty) => {}
             }
 
